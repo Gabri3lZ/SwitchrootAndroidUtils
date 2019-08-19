@@ -35,3 +35,5 @@ Unfortunately, I was not able to run the script within WSL on Windows 10, becaus
     ```
 5. Follow the instructions in the interactive script.
 6. Follow the remaining instructions in the XDA-Developers post (from step 3).
+
+![Screenshot](/screenshot.png)
