@@ -1,5 +1,5 @@
 # SwitchrootAndroidUtils
-Utils for Switchroot's LineageOS Android ROM for Nintendo Switch
+Utils for Switchroot's LineageOS Android ROM for Nintendo Switch.
 
 ## flash.sh
 An interactive bash script to flash Switchroot's Android image on a microSD card. It allows customizing the size for the Nintendo Switch partition and Android user partition, therefore enables the usage of the same microSD card for the Nintendo Switch and Android (and a Homebrew enabled Switch on a [EMUMMC partition](https://nh-server.github.io/switch-guide/user_guide/emummc/making_emummc/)). Unlike flashing the whole image with Etcher and resizing the partitions afterwards, the script has the following advantages:
