@@ -29,6 +29,8 @@ Unfortunately, I was not able to run the script within WSL on Windows 10, becaus
 2. Download "flash.sh" to the same directory where the image is.
 3. Open Terminal emulator and navigate to the directory where the image and script are (in Ubuntu, you can use the File explorer to navigate there, right click the folder and select "Open in Terminal").
 4. Execute the script and pass the path to the Android image as a parameter:
-    ```./flash.sh ./android-16gb.img```
+    ```
+    ./flash.sh ./android-16gb.img
+    ```
 5. Follow the instructions in the interactive script.
 6. Follow the remaining instructions in the XDA-Developers post (from step 3).
