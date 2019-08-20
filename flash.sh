@@ -33,6 +33,11 @@ shouldContinueCheck () {
 	done
 }
 
+getDevPartitionPath () {
+	echo -n $1
+	[[ $1 == *mmcblk* ]] && echo -n p
+	echo -n $2
+}
 
 # exit if android image is either not provided or cannot be found
 
@@ -78,9 +83,9 @@ numOfImagePartitions=${#partitionSizes}
 
 echo "${NL}Available devices:${NL}"
 
-mapfile -t -s 1 devices < <(lsblk -S -o PATH,VENDOR,MODEL,SIZE)
-mapfile -t -s 1 devicePaths < <(lsblk -S -o PATH)
-lsblk -S -o PATH,VENDOR,MODEL,SIZE | awk -v r=$RED -v n=$NC \
+mapfile -t -s 1 devices < <(lsblk -d -e 7 -o PATH,TRAN,VENDOR,MODEL,SIZE)
+mapfile -t -s 1 devicePaths < <(lsblk -d -e 7 -o PATH)
+lsblk -d -e 7 -o PATH,TRAN,VENDOR,MODEL,SIZE | awk -v r=$RED -v n=$NC \
 	'NR == 1 {
 		print("    "$0);
 	}
@@ -99,7 +104,7 @@ do
 done
 
 devicePath=${devicePaths[$deviceIndex]}
-device=$(lsblk -S -o PATH,VENDOR,MODEL,SIZE $devicePath)
+device=$(lsblk -d -e 7 -o PATH,TRAN,VENDOR,MODEL,SIZE $devicePath)
 partitionTable=$(echo "$partitionTable" | sed -e "s|${androidImage}|${devicePath}|g" -e "/first-lba/d" -e "/last-lba/d")
 
 echo "${NL}The following device will be used:${NL}${NL}${device}"
@@ -136,7 +141,8 @@ do
 		emummc=true
 		partitionSizes+=($EMUMMC_SECTORS)
 		((occupiedSectors+=$EMUMMC_SECTORS))
-		emummcPartitionConfig="${devicePath}$((${numOfImagePartitions} + 1)) : start= $(printf '%11s' '0'), size= $(printf '%11s' ${EMUMMC_SECTORS}), type=EBD0A0A2-B9E5-4433-87C0-68B6B72699C7, name=emummc, attrs=RequiredPartition"
+		partDevPath=$(getDevPartitionPath "${devicePath}" "$((${numOfImagePartitions} + 1))")
+		emummcPartitionConfig="${partDevPath} : start= $(printf '%11s' '0'), size= $(printf '%11s' ${EMUMMC_SECTORS}), type=EBD0A0A2-B9E5-4433-87C0-68B6B72699C7, name=emummc, attrs=RequiredPartition"
 		partitionTable=$(echo "$partitionTable" | sed -e "$ a${emummcPartitionConfig}")
 		break
 	fi
@@ -223,9 +229,9 @@ sfdisk --verify $devicePath
 # make empty fs
 
 echo "${NL}Making empty file systems:"
-mkfs.fat -F 32 "${devicePath}1"
-mkfs.fat -F 32 "${devicePath}$((${numOfImagePartitions} + 1))"
-mkfs.ext4 "${devicePath}${numOfImagePartitions}"
+mkfs.fat -F 32 $(getDevPartitionPath "${devicePath}" 1)
+mkfs.fat -F 32 $(getDevPartitionPath "${devicePath}" "$((${numOfImagePartitions} + 1))")
+mkfs.ext4 $(getDevPartitionPath "${devicePath}" "${numOfImagePartitions}")
 
 
 # dump data from android image to sd card
@@ -233,24 +239,26 @@ mkfs.ext4 "${devicePath}${numOfImagePartitions}"
 for i in $(seq 2 $((${numOfImagePartitions} - 1)))
 do
 	index=$(($i - 1))
-	
+
 	# in case the image is not properly aligned (which is the case for some partitions), get the offset of the last aligned MiB
 	lastAlignedMbOffset=$((${imagePartitionOffsets[$index]} + (${imagePartitionSizes[$index]} / 2048 * 2048) ))
 	alignedSize=$(($lastAlignedMbOffset - ${imagePartitionOffsets[$index]}))
 	alignmentErrorSize=$((${imagePartitionOffsets[$index]} + ${imagePartitionSizes[$index]} - $lastAlignedMbOffset))
-	
+
 	sizeInMiB=$((${partitionSizes[$index]} * 512 / (1024 * 1024)))
 	sizeInMB=$((${partitionSizes[$index]} * 512 / (1000 * 1000)))
-	
+
+	partDevPath=$(getDevPartitionPath "${devicePath}" "$i")
+
 	echo "${NL}Dumping partition ${imagePartitionNames[$index]} to sd card ($sizeInMB MB, $sizeInMiB MiB):"
-	dd bs=1M status=progress if=$androidImage of=${devicePath}${i} skip=$((${imagePartitionOffsets[$index]} * 512)) count=$(($alignedSize * 512)) iflag=skip_bytes,count_bytes oflag=direct && sync
-	
+	dd bs=1M status=progress if=$androidImage of=${partDevPath} skip=$((${imagePartitionOffsets[$index]} * 512)) count=$(($alignedSize * 512)) iflag=skip_bytes,count_bytes oflag=direct && sync
+
 	# if there is an alignment error, dump zeros to the last MiB of the sd card partition and afterwards dump the last 0-1 MiB from the image to the sd card partition
 	# using conv=sync in the previous dd is not an option, because it could read into the next partition
 	if [ $alignmentErrorSize != 0 ]
 	then
-		dd bs=512 if=/dev/zero of=${devicePath}${i} seek=$alignedSize count=2048 && sync
-		dd bs=512 if=$androidImage of=${devicePath}${i} skip=$lastAlignedMbOffset seek=$alignedSize count=$alignmentErrorSize && sync
+		dd bs=512 if=/dev/zero of=${partDevPath} seek=$alignedSize count=2048 && sync
+		dd bs=512 if=$androidImage of=${partDevPath} skip=$lastAlignedMbOffset seek=$alignedSize count=$alignmentErrorSize && sync
 	fi
 done
 
@@ -287,14 +295,13 @@ sdMountPoint='sd-switch'
 mkdir /mnt/$imgMountPoint
 mkdir /mnt/$sdMountPoint
 mount -r $loopDevice /mnt/$imgMountPoint
-mount ${devicePath}1 /mnt/$sdMountPoint
+mount $(getDevPartitionPath "${devicePath}" 1) /mnt/$sdMountPoint
 
 cp -r /mnt/$imgMountPoint/* /mnt/$sdMountPoint/
 
 umount $loopDevice
-umount ${devicePath}1
+umount $(getDevPartitionPath "${devicePath}" 1)
 rmdir /mnt/$imgMountPoint
 rmdir /mnt/$sdMountPoint
 
 losetup -d $loopDevice
-
