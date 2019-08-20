@@ -33,6 +33,11 @@ shouldContinueCheck () {
 	done
 }
 
+getDevPartitionPath () {
+	echo -n $1
+	[[ $1 == *mmcblk* ]] && echo -n p
+	echo -n $2
+}
 
 # exit if android image is either not provided or cannot be found
 
@@ -78,9 +83,9 @@ numOfImagePartitions=${#partitionSizes}
 
 echo "${NL}Available devices:${NL}"
 
-mapfile -t -s 1 devices < <(lsblk -S -o PATH,VENDOR,MODEL,SIZE)
-mapfile -t -s 1 devicePaths < <(lsblk -S -o PATH)
-lsblk -S -o PATH,VENDOR,MODEL,SIZE | awk -v r=$RED -v n=$NC \
+mapfile -t -s 1 devices < <(lsblk -I 8,179 --nodeps -o PATH,VENDOR,MODEL,SIZE)
+mapfile -t -s 1 devicePaths < <(lsblk -I 8,179 --nodeps -o PATH)
+lsblk -I 8,179 --nodeps -o PATH,VENDOR,MODEL,SIZE | awk -v r=$RED -v n=$NC \
 	'NR == 1 {
 		print("    "$0);
 	}
@@ -99,7 +104,7 @@ do
 done
 
 devicePath=${devicePaths[$deviceIndex]}
-device=$(lsblk -S -o PATH,VENDOR,MODEL,SIZE $devicePath)
+device=$(lsblk -o PATH,VENDOR,MODEL,SIZE $devicePath)
 partitionTable=$(echo "$partitionTable" | sed -e "s|${androidImage}|${devicePath}|g" -e "/first-lba/d" -e "/last-lba/d")
 
 echo "${NL}The following device will be used:${NL}${NL}${device}"
@@ -136,7 +141,8 @@ do
 		emummc=true
 		partitionSizes+=($EMUMMC_SECTORS)
 		((occupiedSectors+=$EMUMMC_SECTORS))
-		emummcPartitionConfig="${devicePath}$((${numOfImagePartitions} + 1)) : start= $(printf '%11s' '0'), size= $(printf '%11s' ${EMUMMC_SECTORS}), type=EBD0A0A2-B9E5-4433-87C0-68B6B72699C7, name=emummc, attrs=RequiredPartition"
+		partdevpath=$(getDevPartitionPath "${devicePath}" "$((${numOfImagePartitions} + 1))")
+		emummcPartitionConfig="${partdevpath} : start= $(printf '%11s' '0'), size= $(printf '%11s' ${EMUMMC_SECTORS}), type=EBD0A0A2-B9E5-4433-87C0-68B6B72699C7, name=emummc, attrs=RequiredPartition"
 		partitionTable=$(echo "$partitionTable" | sed -e "$ a${emummcPartitionConfig}")
 		break
 	fi
@@ -223,9 +229,9 @@ sfdisk --verify $devicePath
 # make empty fs
 
 echo "${NL}Making empty file systems:"
-mkfs.fat -F 32 "${devicePath}1"
-mkfs.fat -F 32 "${devicePath}$((${numOfImagePartitions} + 1))"
-mkfs.ext4 "${devicePath}${numOfImagePartitions}"
+mkfs.fat -F 32 $(getDevPartitionPath "${devicePath}" 1)
+mkfs.fat -F 32 $(getDevPartitionPath "${devicePath}" "$((${numOfImagePartitions} + 1))")
+mkfs.ext4 $(getDevPartitionPath "${devicePath}" "${numOfImagePartitions}")
 
 
 # dump data from android image to sd card
@@ -235,7 +241,8 @@ do
 	index=$(($i - 1))
 	echo "${NL}Dumping partition ${imagePartitionNames[$index]} to sd card:"
 	dd bs=512 if=$androidImage of=/dev/zero skip=$((${imagePartitionOffsets[$index]} + ${imagePartitionSizes[$index]} - 2048)) count=2048
-	dd bs=512 status=progress if=$androidImage of=${devicePath}${i} skip=${imagePartitionOffsets[$index]} count=${imagePartitionSizes[$index]}
+	partdevpath=$(getDevPartitionPath "${devicePath}" "$i")
+	dd bs=512 status=progress if=$androidImage of=${partdevpath} skip=${imagePartitionOffsets[$index]} count=${imagePartitionSizes[$index]}
 done
 
 
@@ -271,12 +278,12 @@ sdMountPoint='sd-switch'
 mkdir /mnt/$imgMountPoint
 mkdir /mnt/$sdMountPoint
 mount -r $loopDevice /mnt/$imgMountPoint
-mount ${devicePath}1 /mnt/$sdMountPoint
+mount $(getDevPartitionPath "${devicePath}" 1) /mnt/$sdMountPoint
 
 cp -r /mnt/$imgMountPoint/* /mnt/$sdMountPoint/
 
 umount $loopDevice
-umount ${devicePath}1
+umount $(getDevPartitionPath "${devicePath}" 1)
 rmdir /mnt/$imgMountPoint
 rmdir /mnt/$sdMountPoint
 
