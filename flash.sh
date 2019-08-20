@@ -36,7 +36,7 @@ shouldContinueCheck () {
 
 # exit if android image is either not provided or cannot be found
 
-if [ ! -f $androidImage ]
+if [ ! -f "$androidImage" ]
 then
 	echo 'Android image file not found. Please provide path to file as script param.'
 	exit 1
@@ -107,7 +107,7 @@ echo "${NL}The following device will be used:${NL}${NL}${device}"
 shouldContinueCheck
 
 
-# read some basic informations from selected device
+# read some basic information from selected device
 
 umount -q ${devicePath}?*
 
@@ -233,9 +233,25 @@ mkfs.ext4 "${devicePath}${numOfImagePartitions}"
 for i in $(seq 2 $((${numOfImagePartitions} - 1)))
 do
 	index=$(($i - 1))
-	echo "${NL}Dumping partition ${imagePartitionNames[$index]} to sd card:"
-	dd bs=512 if=$androidImage of=/dev/zero skip=$((${imagePartitionOffsets[$index]} + ${imagePartitionSizes[$index]} - 2048)) count=2048
-	dd bs=512 status=progress if=$androidImage of=${devicePath}${i} skip=${imagePartitionOffsets[$index]} count=${imagePartitionSizes[$index]}
+	
+	# in case the image is not properly aligned (which is the case for some partitions), get the offset of the last aligned MiB
+	lastAlignedMbOffset=$((${imagePartitionOffsets[$index]} + (${imagePartitionSizes[$index]} / 2048 * 2048) ))
+	alignedSize=$(($lastAlignedMbOffset - ${imagePartitionOffsets[$index]}))
+	alignmentErrorSize=$((${imagePartitionOffsets[$index]} + ${imagePartitionSizes[$index]} - $lastAlignedMbOffset))
+	
+	sizeInMiB=$((${partitionSizes[$index]} * 512 / (1024 * 1024)))
+	sizeInMB=$((${partitionSizes[$index]} * 512 / (1000 * 1000)))
+	
+	echo "${NL}Dumping partition ${imagePartitionNames[$index]} to sd card ($sizeInMB MB, $sizeInMiB MiB):"
+	dd bs=1M status=progress if=$androidImage of=${devicePath}${i} skip=$((${imagePartitionOffsets[$index]} * 512)) count=$(($alignedSize * 512)) iflag=skip_bytes,count_bytes oflag=direct && sync
+	
+	# if there is an alignment error, dump zeros to the last MiB of the sd card partition and afterwards dump the last 0-1 MiB from the image to the sd card partition
+	# using conv=sync in the previous dd is not an option, because it could read into the next partition
+	if [ $alignmentErrorSize != 0 ]
+	then
+		dd bs=512 if=/dev/zero of=${devicePath}${i} seek=$alignedSize count=2048 && sync
+		dd bs=512 if=$androidImage of=${devicePath}${i} skip=$lastAlignedMbOffset seek=$alignedSize count=$alignmentErrorSize && sync
+	fi
 done
 
 
