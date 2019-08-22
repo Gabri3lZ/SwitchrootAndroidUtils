@@ -9,6 +9,8 @@ NL=${CR%> }
 EMUMMC_SECTORS=61104128
 MIN_NINTENDO_SWITCH_SIZE_IN_MIB=2048
 MIN_ANDROID_USER_SIZE_IN_MIB=8192
+LSBLK_OPTIONS='-d -e 1,7 -p -o'
+LSKBL_COLUMNS='NAME,TRAN,VENDOR,MODEL,SIZE'
 
 androidImage=$1
 
@@ -83,9 +85,9 @@ numOfImagePartitions=${#partitionSizes}
 
 echo "${NL}Available devices:${NL}"
 
-mapfile -t -s 1 devices < <(lsblk -d -e 7 -o PATH,TRAN,VENDOR,MODEL,SIZE)
-mapfile -t -s 1 devicePaths < <(lsblk -d -e 7 -o PATH)
-lsblk -d -e 7 -o PATH,TRAN,VENDOR,MODEL,SIZE | awk -v r=$RED -v n=$NC \
+mapfile -t -s 1 devices < <(lsblk $LSBLK_OPTIONS $LSKBL_COLUMNS)
+mapfile -t -s 1 devicePaths < <(lsblk $LSBLK_OPTIONS NAME)
+lsblk $LSBLK_OPTIONS $LSKBL_COLUMNS | awk -v r=$RED -v n=$NC \
 	'NR == 1 {
 		print("    "$0);
 	}
@@ -104,7 +106,7 @@ do
 done
 
 devicePath=${devicePaths[$deviceIndex]}
-device=$(lsblk -d -e 7 -o PATH,TRAN,VENDOR,MODEL,SIZE $devicePath)
+device=$(lsblk $LSBLK_OPTIONS $LSKBL_COLUMNS $devicePath)
 partitionTable=$(echo "$partitionTable" | sed -e "s|${androidImage}|${devicePath}|g" -e "/first-lba/d" -e "/last-lba/d")
 
 echo "${NL}The following device will be used:${NL}${NL}${device}"
@@ -284,16 +286,11 @@ printf "${makeHybridMbr}${mbrPartitions}${no}${configureMbrPartitions}${no}${wri
 
 loopDevice=$(losetup -o $((${imagePartitionOffsets[0]} * 512)) --sizelimit $((${imagePartitionSizes[0]} * 512)) -LPr --show -f $androidImage)
 
-if [ ! -d /mnt ]
-then
-	mkdir /mnt
-fi
-
 imgMountPoint='img-switch'
 sdMountPoint='sd-switch'
 
-mkdir /mnt/$imgMountPoint
-mkdir /mnt/$sdMountPoint
+mkdir -p /mnt/$imgMountPoint
+mkdir -p /mnt/$sdMountPoint
 mount -r $loopDevice /mnt/$imgMountPoint
 mount $(getDevPartitionPath "${devicePath}" 1) /mnt/$sdMountPoint
 
