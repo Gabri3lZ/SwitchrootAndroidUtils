@@ -116,7 +116,7 @@ shouldContinueCheck
 
 # read some basic information from selected device
 
-umount -q ${devicePath}?*
+umount ${devicePath}?*
 
 totalSectors=$(blockdev --getsz $devicePath)
 lastUsableSector=$(($totalSectors - 34))
